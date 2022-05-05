@@ -1,0 +1,179 @@
+// store-data----------- POST
+
+//---------------- INTERGRATION REQUEST
+
+#set($inputRoot = $input.path('$'))
+{
+  "age" : "$inputRoot.age",
+  "height":" $inputRoot.height",
+  "income": "$inputRoot.income",
+  "userId": "$context.authorizer.claims.sub"
+}
+
+//------------------- LAMDA FUNCTION
+
+const AWS = require('aws-sdk');
+const dynamodb = new AWS.DynamoDB({ apiVersion: '2012-08-10'});
+
+exports.handler = (event, context, callback) => {
+    const params = {
+        Item: {
+            "UserId": {
+                S: event.userId
+            },
+            "Age": {
+                S: event.age
+            },
+            "Height": {
+                S: event.height
+            },
+            "Income": {
+                S: event.income
+            }
+        },
+        TableName: "compare-yourself"
+    };
+    dynamodb.putItem(params, function(err, data) {
+        if (err) {
+            console.log(err);
+            callback(err);
+        } else {
+            console.log(data);
+            callback(null, data);
+        }
+    });
+};
+
+
+// get-data ----------- GET
+
+//---------------- INTERGRATION REQUEST
+{
+    "type": "$input.params('type')",
+    "accessToken": "$input.params('accessToken')"
+}
+
+//------------------- LAMDA FUNCTION
+const AWS = require('aws-sdk');
+const dynamodb = new AWS.DynamoDB({ apiVersion: '2012-08-10' });
+const cisp = new AWS.CognitoIdentityServiceProvider({apiVersion: '2016-04-18'});
+
+exports.handler = (event, context, callback) => {
+    const accessToken = event.accessToken;
+    
+    const type = event.type;
+    if(type === 'all') {
+        const params = {
+            TableName: "compare-yourself"
+        };
+        dynamodb.scan(params, function(err, data){
+            if(err){
+                console.log(err)
+                callback(err) 
+            } else {
+                const items = data.Items.map(
+                    (dataField) => {
+                        return {
+                            age: +dataField.Age.S,
+                            height: +dataField.Height.S,
+                            income: +dataField.Income.S
+                        }
+                    }   
+                );
+                callback(null, items) 
+            }
+            
+        })
+         
+    }else if (type === 'single') {
+        const cispParams = {
+            "AccessToken": accessToken
+        }
+        
+        cisp.getUser(cispParams, (err, result) => {
+            if (err) {
+                console.log(err)
+                callback(err)
+            } else {
+                console.log(result)
+                const userId = result.UserAttributes[0].Value;
+                const params = {
+                    Key:{
+                        "UserId": {
+                            S: userId
+                        }
+                    },
+                    TableName: "compare-yourself"
+                };
+                dynamodb.getItem(params, function(err, data){
+                    if(err){
+                        console.log(err)
+                        callback(err) 
+                    } else {
+                        callback(null, [{
+                            age: +data.Item.Age.S,
+                            height: +data.Item.Height.S,
+                            income: +data.Item.Income.S
+                        }]) 
+                    }
+                    
+                })
+            }
+        });
+        
+        
+    }else {
+        callback('Somthing went wrong')
+    }
+};
+
+
+//---------------- INTERGRATION RESPONSE
+
+#set($inputRoot = $input.path('$'))
+[
+#foreach($elem in $inputRoot)
+ {
+  "age" : $elem.age,
+  "height" : $elem.height,
+  "income" : $elem.income
+} 
+#if($foreach.hasNext),#end
+#end
+]
+
+
+
+//delete data ----------- DELETE
+
+//---------------- INTERGRATION REQUEST
+{
+    "userId": "$context.authorizer.claims.sub"
+}
+
+
+
+//------------------- LAMDA FUNCTION
+
+const AWS = require('aws-sdk');
+const dynamodb = new AWS.DynamoDB({ apiVersion: '2012-08-10'});
+
+exports.handler = (event, context, callback) => {
+    const params = {
+        Key: {
+            "UserId": {
+                S: event.userId
+            }
+        },
+        TableName: "compare-yourself"
+    }
+    dynamodb.deleteItem(params, function(err, data){
+        if(err){
+            callback(err)
+        }else {
+            callback(null, data)
+        }
+    })
+    
+};
+
